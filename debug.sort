@@ -1,0 +1,13 @@
+  0   0 ASRL1::INSTR
+  1   1 GPIB1::INTFC
+  2   2 ASRL3::INSTR
+  3   3 ASRL4::INSTR
+  4   4 GPIB0::INTFC
+  5   5 GPIB0::6::INSTR
+===============================
+  0   0 ASRL1::INSTR
+  1   2 ASRL3::INSTR
+  2   3 ASRL4::INSTR
+  3   5 GPIB0::6::INSTR
+  4   4 GPIB0::INTFC
+  5   1 GPIB1::INTFC

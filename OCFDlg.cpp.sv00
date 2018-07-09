@@ -1,0 +1,711 @@
+// OCFDlg.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "Globals.h"
+#include "OCF.h"
+#include "OCFDlg.h"
+#include <direct.h>
+
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
+
+static CFont f_status ;
+static CFont f_text ;
+static CFont f_title ;
+static CFont f_clock ;
+static CFont f_bold ;
+static CFont f_desc ;
+
+static CPen cPenRed ;
+static CPen cPenGreen ;
+static CBrush cBrushRed ;
+static COLORREF gRed = RGB( 205, 102, 0 ) ;
+
+
+int iTopDevices = 0 ;
+
+// C_OCFDlg dialog
+
+static void ReadConfiguration( void ) ;
+static void SetupConfiguration( void ) ;
+
+C_OCFDlg::C_OCFDlg(CWnd* pParent /*=NULL*/)
+	: CDialog(C_OCFDlg::IDD, pParent)
+	, m_str_Time(_T(""))
+{
+    m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+    ReadConfiguration() ;
+
+    cPenRed.CreatePen( PS_SOLID, 1, RGB( 238, 80, 80 ) ) ;
+    cPenGreen.CreatePen( PS_SOLID, 1, RGB( 0, 128, 0 ) ) ;
+    cBrushRed.CreateSolidBrush( RGB( 238, 80, 80 ) ) ;
+
+    f_text.CreateFont(
+	16, 0, 0, 0, FW_DONTCARE,
+	0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+	CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+	DEFAULT_PITCH | FF_DONTCARE, "Courier New" );
+
+    f_status.CreateFont(
+	14, 0, 0, 0, FW_DONTCARE,
+	0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+	CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+	DEFAULT_PITCH | FF_DONTCARE, "Courier New" );
+
+    f_title.CreateFont(
+	48, 0, 0, 0, FW_BOLD,
+	0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+	CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+	DEFAULT_PITCH | FF_ROMAN, "Times New Roman" );
+
+    f_clock.CreateFont(
+	14, 0, 0, 0, FW_DONTCARE,
+	0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+	CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+	DEFAULT_PITCH | FF_DONTCARE, "Courier New" );
+
+    f_bold.CreateFont(
+	16, 0, 0, 0, FW_BOLD,
+	0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+	CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+	DEFAULT_PITCH | FF_DONTCARE, "Courier New" );
+
+    f_desc.CreateFont(
+	14, 0, 0, 0, FW_DONTCARE,
+	TRUE, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+	CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+	DEFAULT_PITCH | FF_DONTCARE, "Courier New" );
+}
+
+void C_OCFDlg::DoDataExchange(CDataExchange* pDX)
+{
+	CDialog::DoDataExchange(pDX);
+	DDX_Text(pDX, IDC_LIST, m_str_VISA);
+	DDX_Text(pDX, IDC_TIME, m_str_Time);
+}
+
+C_OCFDlg::~C_OCFDlg()
+{
+    int i, j ;
+
+    bRunning = FALSE ;
+    Sleep( 5000 ) ;
+
+    for( i = 0 ; i < iNDevs ; i++ ) {
+	if( s_Devices[i].cDevice != NULL ) {
+	    free( s_Devices[i].cDevice ) ;
+	    s_Devices[i].cDevice = NULL ;
+	}
+
+	if( s_Devices[i].cName != NULL ) {
+	    free( s_Devices[i].cName ) ;
+	    s_Devices[i].cName = NULL ; 
+	}
+
+	if( s_Devices[i].cDescription != NULL ) {
+	    free( s_Devices[i].cDescription ) ;
+	    s_Devices[i].cDescription = NULL ; 
+	}
+
+	if( s_Devices[i].cVISA != NULL ) {
+	    free( s_Devices[i].cVISA ) ;
+	    s_Devices[i].cVISA = NULL ; 
+	}
+
+	for( j = 0 ; j < 4 ; j++ ) {
+	    delete csDeviceNet[i][j] ;
+	}
+    }
+
+}
+
+BEGIN_MESSAGE_MAP(C_OCFDlg, CDialog)
+	ON_WM_PAINT()
+	ON_WM_QUERYDRAGICON()
+	//}}AFX_MSG_MAP
+	ON_WM_TIMER()
+END_MESSAGE_MAP()
+
+
+// C_OCFDlg message handlers
+
+void C_OCFDlg::SetTitle( void )
+{
+    char *sTitle = "OCF Device Network Server" ;
+    CDC *pDC = GetDC() ;
+    if( pDC == NULL ) {
+	GetDlgItem( IDC_TITLE ) -> SetWindowText( "failed" ) ;
+	return ;
+    }
+    CFont *of = pDC->SelectObject( &f_title ) ;
+    CSize csStrSize = pDC->GetTextExtent( sTitle, strlen(sTitle) ) ;
+    pDC->SelectObject( of ) ;
+
+    CRect crTitle;
+    GetDlgItem( IDC_TITLE ) -> GetWindowRect( &crTitle ) ;
+    ScreenToClient( &crTitle ) ;
+
+    CRect crParent;
+    GetClientRect(&crParent);
+
+    int x = (crParent.right - crParent.left) / 2 - csStrSize.cx / 2 ;
+    int y = crTitle.top ;
+
+    GetDlgItem( IDC_TITLE ) -> SetFont( &f_title ) ;
+    GetDlgItem( IDC_TITLE ) -> SetWindowText( sTitle ) ;
+
+    GetDlgItem( IDC_TITLE ) -> MoveWindow( x, y, csStrSize.cx, csStrSize.cy, TRUE ) ;
+    GetDlgItem( IDC_TITLE ) -> GetWindowRect( &crTitle ) ;
+    ScreenToClient( &crTitle ) ;
+    iTopDevices = crTitle.bottom ;
+}
+
+BOOL C_OCFDlg::OnInitDialog()
+{
+    CDialog::OnInitDialog();
+
+    // Set the icon for this dialog.  The framework does this automatically
+    //  when the application's main window is not a dialog
+    SetIcon(m_hIcon, TRUE);			// Set big icon
+    SetIcon(m_hIcon, FALSE);		// Set small icon
+
+    // ShowWindow(SW_MAXIMIZE);
+    SetTitle() ;
+    GetDlgItem( IDC_TIME ) -> SetFont( &f_clock ) ;
+
+    bRunning = TRUE ;
+
+    SetupConfiguration() ;
+
+    SetTimer( 1, iTiming, NULL ) ;
+
+    return TRUE;  // return TRUE  unless you set the focus to a control
+}
+
+// If you add a minimize button to your dialog, you will need the code below
+//  to draw the icon.  For MFC applications using the document/view model,
+//  this is automatically done for you by the framework.
+
+void C_OCFDlg::OnPaint()
+{
+	if (IsIconic())
+	{
+		CPaintDC dc(this); // device context for painting
+
+		SendMessage(WM_ICONERASEBKGND, reinterpret_cast<WPARAM>(dc.GetSafeHdc()), 0);
+
+		// Center icon in client rectangle
+		int cxIcon = GetSystemMetrics(SM_CXICON);
+		int cyIcon = GetSystemMetrics(SM_CYICON);
+		CRect rect;
+		GetClientRect(&rect);
+		int x = (rect.Width() - cxIcon + 1) / 2;
+		int y = (rect.Height() - cyIcon + 1) / 2;
+
+		// Draw the icon
+		dc.DrawIcon(x, y, m_hIcon);
+	}
+	else
+	{
+		CDialog::OnPaint();
+	}
+}
+
+// The system calls this function to obtain the cursor to display while the user drags
+//  the minimized window.
+HCURSOR C_OCFDlg::OnQueryDragIcon()
+{
+	return static_cast<HCURSOR>(m_hIcon);
+}
+
+
+static void ReadConfiguration( void )
+{
+    char valString[65536] ;
+    char filename[MAX_PATH] ;
+    char sCurrWD[MAX_PATH] ;
+    int i ;
+    char *p ;
+    DWORD dwTemp ;
+
+    char cEnableDefault[MAX_PATH] ;
+    char cTimeoutDefault[MAX_PATH] ;
+    char cRxFlushDefault[MAX_PATH] ;
+    char cRxReadCharsDefault[MAX_PATH] ;
+    char cRxTermCharsDefault[MAX_PATH] ;
+    u_char ucTxWriteOnlyCharDefault[MAX_PATH] ;
+    char cTxAppendCharsDefault[MAX_PATH] ;
+    char cBaudRateDefault[MAX_PATH] ;
+    char cDelayAfterWriteDefault[MAX_PATH] ;
+    char cBinaryDefault[MAX_PATH] ;
+
+    _getcwd( sCurrWD, MAX_PATH ) ;
+
+    // Devices.ini file is always kept in the Applications
+    // starting directory. Through a shortcut, this does not
+    // need to be the same place as the executeable.
+
+    _getcwd( filename, MAX_PATH ) ;
+    strncat_s( filename, "\\Devices.ini", MAX_PATH ) ;
+
+    DWORD profile_status ;
+    // LPSTR p_str ;
+
+    // We want the list of all the blocks.
+    profile_status = GetPrivateProfileString( NULL, NULL, NULL, valString, sizeof(valString), filename ) ;
+    if( profile_status <= 0 ) {
+	Alert( "Could not open Devices.ini file." ) ;
+	return ;
+    }
+
+    p = valString ;
+    for( iNDevs = 0 ; iNDevs < N_DEVS ; ) {
+	if( strlen( p ) == 0 ) break ;
+	if( _stricmp( p, "default" ) != 0 ) {
+            if( s_Devices[iNDevs].cDevice ) free( s_Devices[iNDevs].cDevice ) ;
+            s_Devices[iNDevs].cDevice = _strdup( p ) ;
+            if( s_Devices[iNDevs].cDevice == NULL ) break ;
+	    iNDevs++ ;
+	}
+	p = p + strlen(p) + 1 ;
+    }
+
+    profile_status = GetPrivateProfileString( "Default", "Enable", "0", cEnableDefault, sizeof(cEnableDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "BaudRate", "9600", cBaudRateDefault, sizeof(cBaudRateDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "RxFlush", "0", cRxFlushDefault, sizeof(cRxFlushDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "TxAppendChars", "0x0a", cTxAppendCharsDefault, sizeof(cTxAppendCharsDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "DelayAfterWrite", "0", cDelayAfterWriteDefault, sizeof(cDelayAfterWriteDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "RxReadChars", "0", cRxReadCharsDefault, sizeof(cRxReadCharsDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "RxTermChars", "0", cRxTermCharsDefault, sizeof(cRxTermCharsDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "TxWriteOnlyChar", "/", (char*)ucTxWriteOnlyCharDefault, sizeof(ucTxWriteOnlyCharDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "Timeout", "2000", cTimeoutDefault, sizeof(cTimeoutDefault), filename ) ;
+    profile_status = GetPrivateProfileString( "Default", "Binary", "0", cBinaryDefault, sizeof(cBinaryDefault), filename ) ;
+
+    for( i = 0 ; i < iNDevs ; i++ ) {
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "Name", "", valString, sizeof(valString), filename ) ;
+	s_Devices[i].cName = _strdup( valString ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "Description", "", valString, sizeof(valString), filename ) ;
+	s_Devices[i].cDescription = _strdup( valString ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "VISA", "", valString, sizeof(valString), filename ) ;
+	s_Devices[i].cVISA = _strdup( valString ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "Port", "0", valString, sizeof(valString), filename ) ;
+	s_Devices[i].iPort = strtol( valString, NULL, 0 ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "Enable", cEnableDefault, valString, sizeof(valString), filename ) ;
+	s_Devices[i].bEnabled = strtol( valString, NULL, 0 ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "BaudRate", cBaudRateDefault, valString, sizeof(valString), filename ) ;
+	s_Devices[i].iBaudRate = strtol( valString, NULL, 0 ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "RxFlush", cRxFlushDefault, valString, sizeof(valString), filename ) ;
+	s_Devices[i].bRxFlush = strtol( valString, NULL, 0 ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "TxAppendChars", cTxAppendCharsDefault, valString, sizeof(valString), filename ) ;
+	dwTemp = strtoul( valString, NULL, 0 ) ;
+	memcpy( s_Devices[i].cTxAppendChars, (void*)&dwTemp, 4 ) ;
+	s_Devices[i].lenTxAppendChars = strlen( s_Devices[i].cTxAppendChars ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "TxWriteOnlyChar", (char*)ucTxWriteOnlyCharDefault, valString, sizeof(valString), filename ) ;
+	if( strlen(valString) == 0 ) {
+	    s_Devices[i].ucTxWriteOnlyChar = 0 ;
+	} else if( strlen(valString) == 1 ) {
+	    s_Devices[i].ucTxWriteOnlyChar = valString[0] ;
+	} else {
+	    dwTemp = strtoul( valString, NULL, 0 ) ;
+	    s_Devices[i].ucTxWriteOnlyChar = (u_char)(0xFF & dwTemp) ;
+	}
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "DelayAfterWrite", cDelayAfterWriteDefault, valString, sizeof(valString), filename ) ;
+	s_Devices[i].iDelayAfterWrite = strtol( valString, NULL, 0 ) ;
+	if( s_Devices[i].iDelayAfterWrite < 0 ) s_Devices[i].iDelayAfterWrite = 100 ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "Timeout", cTimeoutDefault, valString, sizeof(valString), filename ) ;
+	s_Devices[i].iTimeOut = strtol( valString, NULL, 0 ) ;
+	if( s_Devices[i].iTimeOut <= 0 ) s_Devices[i].iTimeOut = 100 ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "RxReadChars", cRxReadCharsDefault, valString, sizeof(valString), filename ) ;
+	s_Devices[i].iRxReadChars = strtol( valString, NULL, 0 ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "RxTermChars", cRxTermCharsDefault, valString, sizeof(valString), filename ) ;
+	dwTemp = strtoul( valString, NULL, 0 ) ;
+	memcpy( s_Devices[i].cRxTermChars, (void*)&dwTemp, 4 ) ;
+	s_Devices[i].iRxTrimChars = strlen( s_Devices[i].cRxTermChars ) ;
+
+	profile_status = GetPrivateProfileString( s_Devices[i].cDevice, "Binary", cBinaryDefault, valString, sizeof(valString), filename ) ;
+	s_Devices[i].bBinary = (strtol( valString, NULL, 0 ) != 0);
+    }
+}
+
+void C_OCFDlg::OpenResourceManager( void )
+{
+    if( ! bRMInitialized ) {
+	viOpenDefaultRM( &DefaultRM ) ;
+    }
+    bRMInitialized = TRUE ;
+}
+
+void C_OCFDlg::CloseResourceManager( void )
+{
+    if( bRMInitialized ) {
+	viClose( DefaultRM ) ;
+    }
+    bRMInitialized = FALSE ;
+}
+
+static char xTmp[16384] ;
+
+void C_OCFDlg::ListResources( void )
+{
+    ViFindList vfList ;
+    ViUInt32 vuiReturnCount ;
+    ViRsrc vrDescriptor ;
+    ViString vsExpr = ViString( "?*" ) ;
+    ViStatus viStatus ;
+
+    vrDescriptor = (ViRsrc)malloc( 2048 ) ;
+
+    viStatus = viFindRsrc( DefaultRM, vsExpr, &vfList, &vuiReturnCount, (ViPRsrc)vrDescriptor ) ;
+    if( viStatus != VI_SUCCESS )
+	return ;
+
+    LPSTR p_str = m_str_VISA.GetBuffer( 16384 ) ;
+    p_str += sprintf_s( p_str, 256, "Objects found = %d\n", vuiReturnCount ) ;
+    while( 1 ) {
+	p_str += sprintf_s( p_str, 256, "%s\n", vrDescriptor) ;
+	viStatus = viFindNext( vfList, (ViPRsrc)vrDescriptor ) ;
+	if( viStatus != VI_SUCCESS ) break ;
+    }
+    m_str_VISA.ReleaseBuffer() ;
+    free( vrDescriptor ) ;
+
+    viClose( vfList ) ;
+}
+
+void C_OCFDlg::SetupConfiguration( void )
+{
+    int i ;
+
+    OpenResourceManager() ;
+    ListResources() ;
+
+    for( i = 0 ; i < iNDevs ; i++ ) {
+	s_Devices[i].iDevice = i ;
+	s_Devices[i].hMutex = CreateMutex( NULL, FALSE, NULL ) ;
+
+	SetType( i ) ;
+
+	SetupStatus( i ) ;
+
+	if( s_Devices[i] . bEnabled == FALSE ) continue ;
+
+        s_Devices[i].hThreadN = CreateThread(
+            NULL,
+            0,
+            &fThread_N,
+            &(s_Devices[i] . iDevice),
+            0,
+            &(s_Devices[i] . dwThreadID)
+	    ) ;
+    }
+}
+void C_OCFDlg::SetType( int iW )
+{
+    if( _strnicmp( s_Devices[iW] . cVISA, "ASRL", 4 ) == 0 ) {
+	s_Devices[iW] . eType = eSerial ;
+    } else if( _strnicmp( s_Devices[iW] . cVISA, "GPIB", 4 ) == 0 ) {
+	s_Devices[iW] . eType = eGPIB ;
+    } else {
+	s_Devices[iW] . eType = eUnknown ;
+    }
+}
+
+void C_OCFDlg::UpdateStatusAll( void )
+{
+    int i ;
+
+    for( i = 0 ; i < iNDevs ; i++ ) {
+	UpdateStatus( i ) ;
+    }
+}
+
+void C_OCFDlg::UpdateStatus( int iW )
+{
+    char temp[256] ;
+
+    WaitForSingleObject(  s_Devices[iW] . hMutex, INFINITE ) ;
+
+    if( s_Devices[iW] . bEnabled ) {
+	if( s_Devices[iW] . iOpened == 0 ) {
+	    csDeviceStatus[iW] . SetTextColor( RGB(0,0,0) ) ;
+	    csDeviceStatus[iW] . SetWindowText( " Unopened" )  ;
+	} else if( s_Devices[iW] . iOpened == 1 ) {
+	    csDeviceStatus[iW] . SetTextColor( RGB(0,200,0) ) ;
+	    csDeviceStatus[iW] . SetWindowText( " Opened" )  ;
+	} else {
+	    csDeviceStatus[iW] . SetTextColor( RGB(210,0,0) ) ;
+	    csDeviceStatus[iW] . SetWindowText( " Open Failed" )  ;
+	}
+    } else {
+	csDeviceStatus[iW] . SetTextColor( RGB(0,0,0) ) ;
+	csDeviceStatus[iW] . SetWindowText( "Disabled" )  ;
+    }
+
+    if( s_Devices[iW] . bConnected ) {
+	csDeviceNetworked[iW] . SetTextColor( RGB(0,200,0) ) ;
+	csDeviceNetworked[iW] . SetWindowText( " Connected" )  ;
+    } else {
+	csDeviceNetworked[iW] . SetTextColor( RGB(0,0,200) ) ;
+	csDeviceNetworked[iW] . SetWindowText( " Not Connected" )  ;
+    }
+
+    sprintf_s( temp, sizeof(temp), "%10d", s_Devices[iW] . ulNetworkRx ) ;
+    csDeviceNet[iW][0]->SetWindowText( temp ) ;
+    sprintf_s( temp, sizeof(temp), "%10d", s_Devices[iW] . ulDeviceTx ) ;
+    csDeviceNet[iW][1]->SetWindowText( temp ) ;
+    sprintf_s( temp, sizeof(temp), "%10d", s_Devices[iW] . ulDeviceRx ) ;
+    csDeviceNet[iW][2]->SetWindowText( temp ) ;
+    sprintf_s( temp, sizeof(temp), "%10d", s_Devices[iW] . ulNetworkTx ) ;
+    csDeviceNet[iW][3]->SetWindowText( temp ) ;
+
+    csDeviceHostName[iW] . SetWindowText( s_Devices[iW] . cHostName ) ;
+    csDeviceHostIP[iW] . SetWindowText( s_Devices[iW] . cHostIP ) ;
+
+    sprintf_s( temp, sizeof(temp), "%6d", s_Devices[iW] . iHostPort ) ;
+    csDeviceHostPort[iW] . SetWindowText( temp ) ;
+
+    csDeviceCommand[iW] . SetWindowText( s_Devices[iW].cCmdDisplay ) ;
+    csDeviceReply[iW] . SetWindowText( s_Devices[iW].cReplyDisplay ) ;
+
+    ReleaseMutex(  s_Devices[iW] . hMutex ) ;
+}
+
+
+static POINT cpStatus[] = {
+{ 0, 0 },
+} ;
+
+void C_OCFDlg::SetupStatus( int iW )
+{
+    CHAR tmp[1024] ;
+    int ht = 20 ;
+    int x, x0 = 10 ;
+    int y, y0 = iTopDevices + 30 ;
+    int id = 9000 + 20*iW;
+    int txtwd = 250 ;
+    int x_0, y_0 ;
+
+    x_0 = x0 ;
+    y_0 = y0 + iW * 3*ht + iW * 5 ;
+
+    x = x_0 ;
+    y = y_0 ;
+
+    s_Devices[iW] . iBaseID = id ;
+
+    csDeviceName[iW].Create( _T("Status 1"), WS_CHILD | SS_SUNKEN | SS_LEFTNOWORDWRAP | SS_CENTERIMAGE | SS_NOTIFY , CRect(x, y, x+txtwd, y+ht ), this, id++ ) ;
+    csDeviceName[iW].SetFont( &f_text ) ;
+    csDeviceName[iW].SetWindowText( s_Devices[iW] . cName ) ;
+    csDeviceName[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceName[iW].SetToolTip( "Device Name" ) ;
+
+    x = x + txtwd ;
+    csDeviceStatus[iW].Create( "Disabled", WS_CHILD | SS_SUNKEN | SS_LEFT | SS_CENTERIMAGE | SS_NOTIFY , CRect(x, y, x+100, y+ht ), this, id++ ) ;
+    csDeviceStatus[iW].SetFont( &f_bold ) ;
+    csDeviceStatus[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceStatus[iW].SetToolTip( "VISA Open Status" ) ;
+
+    x = x + 100 ;
+    csDeviceNetworked[iW].Create( "Disabled", WS_CHILD | SS_SUNKEN | SS_LEFT | SS_CENTERIMAGE | SS_NOTIFY , CRect(x, y, x+120, y+ht ), this, id++ ) ;
+    csDeviceNetworked[iW].SetFont( &f_bold ) ;
+    csDeviceNetworked[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceNetworked[iW].SetToolTip( "Network Connection Status" ) ;
+
+    int i ;
+    int hx = x + 120 ;
+    int hy = y ;
+    for( i = 0 ; i < 4 ; i++ ) {
+	csDeviceNet[iW][i] = new CColour() ;
+	x = hx + (i%4) * 100 ;
+	y = hy + (i/4) * ht ;
+	csDeviceNet[iW][i]->Create( _T("Status 1"), WS_CHILD | SS_SUNKEN | SS_CENTERIMAGE | SS_RIGHT| SS_NOTIFY , CRect(x, y, x+100, y+ht ), this, id++ ) ;
+	csDeviceNet[iW][i]->SetFont( &f_status ) ;
+	csDeviceNet[iW][i]->SetWindowText( "X0987654321" ) ;
+	csDeviceNet[iW][i]->ShowWindow( SW_SHOW ) ;
+    }
+    csDeviceNet[iW][0]->SetToolTip( "Bytes RX from Network" ) ;
+    csDeviceNet[iW][1]->SetToolTip( "Bytes TX to Device" ) ;
+    csDeviceNet[iW][2]->SetToolTip( "Bytes RX from Device" ) ;
+    csDeviceNet[iW][3]->SetToolTip( "Bytes TX to Network" ) ;
+
+    x = x_0 ;
+    y = y_0 + ht ;
+    txtwd = 350 ;
+    csDeviceDescription[iW].Create( NULL, WS_CHILD | SS_SUNKEN| SS_NOTIFY , CRect(x, y, x+txtwd, y+2*ht ), this, id++ ) ;
+    csDeviceDescription[iW].SetFont( &f_desc ) ;
+    csDeviceDescription[iW].SetWindowText( s_Devices[iW] . cDescription ) ;
+    csDeviceDescription[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceDescription[iW].SetToolTip( "Device Description" ) ;
+
+    x = x + txtwd ;
+    csDeviceVISA[iW].Create( NULL, WS_CHILD | SS_SUNKEN | SS_CENTERIMAGE | SS_LEFT| SS_NOTIFY , CRect(x, y, x+120, y+ht ), this, id++ ) ;
+    csDeviceVISA[iW].SetFont( &f_text ) ;
+    csDeviceVISA[iW].SetWindowText( s_Devices[iW] . cVISA ) ;
+    csDeviceVISA[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceVISA[iW].SetToolTip( "VISA Device Name" ) ;
+
+    x = x + 120 ;
+    csDeviceLocalPort[iW].Create( NULL, WS_CHILD | SS_SUNKEN | SS_CENTERIMAGE | SS_RIGHT| SS_NOTIFY , CRect(x, y, x+50, y+ht ), this, id++ ) ;
+    csDeviceLocalPort[iW].SetFont( &f_status ) ;
+    sprintf_s( tmp, sizeof(tmp), "%6d", s_Devices[iW] . iPort ) ;
+    csDeviceLocalPort[iW].SetWindowText( tmp ) ;
+    csDeviceLocalPort[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceLocalPort[iW].SetToolTip( "Server's TCP Port Number for Device" ) ;
+
+    x = x + 50 ;
+    csDeviceHostName[iW].Create( NULL, WS_CHILD | SS_SUNKEN | SS_LEFTNOWORDWRAP | SS_CENTERIMAGE| SS_NOTIFY , CRect(x, y, x+150, y+ht ), this, id++ ) ;
+    csDeviceHostName[iW].SetFont( &f_status ) ;
+    csDeviceHostName[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceHostName[iW].SetToolTip( "Name of Connected Machine" ) ;
+
+    x = x + 150 ;
+    csDeviceHostIP[iW].Create( NULL, WS_CHILD | SS_SUNKEN | SS_LEFTNOWORDWRAP | SS_CENTERIMAGE| SS_NOTIFY , CRect(x, y, x+150, y+ht ), this, id++ ) ;
+    csDeviceHostIP[iW].SetFont( &f_status ) ;
+    csDeviceHostIP[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceHostIP[iW].SetToolTip( "IP of Connected Machine" ) ;
+
+    x = x + 150 ;
+    csDeviceHostPort[iW].Create( NULL, WS_CHILD | SS_SUNKEN | SS_CENTERIMAGE | SS_RIGHT| SS_NOTIFY , CRect(x, y, x+50, y+ht ), this, id++ ) ;
+    csDeviceHostPort[iW].SetFont( &f_status ) ;
+    csDeviceHostPort[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceHostPort[iW].SetToolTip( "TCP Port on Connected Machine" ) ;
+
+    x = x_0 ;
+    y = y_0 + 2 * ht ;
+    x += txtwd ;
+    csDeviceCommand[iW].Create( NULL, WS_CHILD | SS_SUNKEN | SS_LEFTNOWORDWRAP | SS_CENTERIMAGE| SS_NOTIFY , CRect(x, y, x+250, y+ht ), this, id++ ) ;
+    csDeviceCommand[iW].SetFont( &f_status ) ;
+    csDeviceCommand[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceCommand[iW].SetToolTip( "Latest Command Sent" ) ;
+
+    x = x + 250 ;
+    csDeviceReply[iW].Create( NULL, WS_CHILD | SS_SUNKEN | SS_LEFTNOWORDWRAP | SS_CENTERIMAGE| SS_NOTIFY , CRect(x, y, x+270, y+ht ), this, id++ ) ;
+    csDeviceReply[iW].SetFont( &f_status ) ;
+    csDeviceReply[iW].ShowWindow( SW_SHOW ) ;
+    csDeviceReply[iW].SetToolTip( "Latest Response Received" ) ;
+
+}
+
+#if QUERY_IDN_MAYBE_NOT
+
+void C_OCFDlg::OnBnClickedButton1()
+{
+    /*idn.c
+    This example program queries a GPIB device for an identification string 
+    and prints the results. Note that you must change the address. */
+
+    ViSession defaultRM, vi;
+    char buf [256] = {0};
+
+    viOpenDefaultRM (&defaultRM);
+
+    int i ;
+    for( i = 0 ; i < iNDevs ; i++ ) {
+		        
+	if( s_Devices[i] . bEnabled == FALSE ) continue ;
+	if( strstr( s_Devices[i] . cVISA, "GPIB" ) == 0 ) continue ;
+
+	viOpen (defaultRM, s_Devices[i] . cVISA, VI_NULL, VI_NULL, &vi ) ;
+
+	/* Send an *IDN? string to the device */
+	viPrintf (vi, "*IDN?\n");
+
+	/* Read results */
+	viScanf (vi, "%t", &buf);
+
+	strcpy_s( s_Devices[i] . cIDN, sizeof(s_Devices[i].cIDN), buf ) ;
+
+	/* Close session */
+	viClose (vi);
+
+    }
+    viClose (defaultRM);
+
+    /*
+    LPSTR p_str = m_str_IDN.GetBuffer( 128 ) ;
+    sprintf_s( p_str, 128, "Instrument=%s", buf ) ;
+    m_str_IDN.ReleaseBuffer() ;
+    */
+    UpdateData( FALSE ) ;
+}
+
+#endif // QUERY_IDN_MAYBE_NOT
+
+void SetupTime( char *pStr, int iMaxStr )
+{
+    struct tm tm_utc, tm_local ;
+    static time_t now, last = 0, first = 0 ;
+    int m ;
+
+    time(&now) ;
+
+    if( first == 0 ) 
+	first = now ;
+
+    if( last == now )
+	return ;
+    last = now ;
+
+    gmtime_s( &tm_utc, &now ) ;
+    localtime_s( &tm_local, &now ) ;
+
+    m = 0 ;
+    m += sprintf_s( pStr+m, iMaxStr-m,
+        "UTC: %4d-%02d-%02d %02d:%02d:%02d\n",
+        1900+tm_utc.tm_year, 
+        tm_utc.tm_mon+1,
+        tm_utc.tm_mday,
+        tm_utc.tm_hour,
+        tm_utc.tm_min,
+        tm_utc.tm_sec ) ;
+
+    m += sprintf_s( pStr+m, iMaxStr-m,
+        "%s: %4d-%02d-%02d %02d:%02d:%02d\n",
+	"Lcl",
+        1900+tm_local.tm_year, 
+        tm_local.tm_mon+1,
+        tm_local.tm_mday,
+        tm_local.tm_hour,
+        tm_local.tm_min,
+        tm_local.tm_sec ) ;
+
+    int iUptime = (int)(now - first) ;
+    int iUd, iUh, iUm, iUs ;
+    iUd = iUptime / 86400 ;
+    iUptime = iUptime - iUd * 86400 ;
+    iUh = iUptime / 3600 ;
+    iUptime = iUptime - iUh * 3600 ;
+    iUm = iUptime / 60 ;
+    iUs = iUptime - iUm * 60 ;
+
+    m += sprintf_s( pStr+m, iMaxStr-m,
+        "%s:    %4d:%02d:%02d:%02d",
+	"Uptime",
+	iUd, iUh, iUm, iUs ) ;
+}
+
+void C_OCFDlg::OnTimer(UINT_PTR nIDEvent)
+{
+    // CDialog::OnTimer(nIDEvent);
+    UpdateStatusAll() ;
+
+    LPSTR p_str = m_str_Time.GetBuffer( 256 ) ;
+    SetupTime( p_str, 256 ) ;
+    m_str_Time.ReleaseBuffer() ;
+
+    UpdateData( FALSE ) ;
+}

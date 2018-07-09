@@ -1,0 +1,6 @@
+Starting ...
+Device = 0 Name = Keithley Instruments 6514 Electrometer
+Event  0 Mask        8 A   8 C  20 R   1 W   2
+accepted 1: 0 10000
+accepted CB: 0 10000
+Event Mask        2    8

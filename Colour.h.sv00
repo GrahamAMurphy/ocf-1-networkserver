@@ -1,0 +1,25 @@
+#pragma once
+
+
+// CColour
+
+class CColour : public CStatic
+{
+	DECLARE_DYNAMIC(CColour)
+
+public:
+	CColour();
+	virtual ~CColour();
+	CBrush m_hbr ;
+	CWnd m_p ;
+
+protected:
+	DECLARE_MESSAGE_MAP()
+public:
+	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
+	afx_msg HBRUSH CtlColor(CDC* /*pDC*/, UINT /*nCtlColor*/);
+	virtual BOOL OnChildNotify(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* pLResult);
+	afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
+};
+
+

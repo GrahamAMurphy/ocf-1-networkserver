@@ -1,0 +1,78 @@
+// Colour.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "OCF.h"
+#include "Colour.h"
+
+
+// CColour
+
+IMPLEMENT_DYNAMIC(CColour, CStatic)
+
+CColour::CColour()
+{
+	m_hbr.CreateSolidBrush( RGB(255,255,0) ) ;
+
+	//MessageBox( "start" ) ;
+}
+
+CColour::~CColour()
+{
+}
+
+
+BEGIN_MESSAGE_MAP(CColour, CStatic)
+	ON_WM_CTLCOLOR()
+	ON_WM_CREATE()
+END_MESSAGE_MAP()
+
+
+
+// CColour message handlers
+
+
+
+HBRUSH CColour::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+	// HBRUSH hbr = CStatic::OnCtlColor(pDC, pWnd, nCtlColor);
+
+	// TODO:  Change any attributes of the DC here
+	// pDC->SetTextColor( RGB(255,0,0) ) ;
+
+	// TODO:  Return a different brush if the default is not desired
+	return (HBRUSH)m_hbr.GetSafeHandle() ;
+}
+
+
+BOOL CColour::OnChildNotify(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* pLResult)
+{
+	if( message == WM_CTLCOLOR || message == WM_CTLCOLORSTATIC ) {
+		HDC hdcChild = (HDC)wParam ;
+		::SetTextColor( hdcChild, RGB(0,255,0)) ;
+		::SetBkMode( hdcChild, TRANSPARENT ) ;
+		::SetBkColor(hdcChild, RGB(255,0,0));
+		//*pLResult = (LRESULT)(m_hbr.GetSafeHandle()) ;
+		//MessageBox("onchild");
+		return TRUE ;
+	}
+	return CStatic::OnChildNotify(message, wParam, lParam, pLResult);
+}
+
+int CColour::OnCreate(LPCREATESTRUCT lpCreateStruct)
+{
+	CREATESTRUCT csNew;
+	memcpy( &csNew, lpCreateStruct, sizeof(CREATESTRUCT) ) ;
+	csNew.style = WS_CHILD | WS_VISIBLE | SS_SUNKEN ;
+
+	m_p.CreateEx( csNew.dwExStyle, csNew.lpszClass, csNew.lpszName, csNew.style, 
+		csNew.x, csNew.y, csNew.cx, csNew.cy, csNew.hwndParent, csNew.hMenu, NULL ) ;
+	return 0 ;
+	if (CStatic::OnCreate(lpCreateStruct) == -1)
+		return -1;
+		//MessageBox("oncreate");
+
+	// TODO:  Add your specialized creation code here
+
+	return 0;
+}
